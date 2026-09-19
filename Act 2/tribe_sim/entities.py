@@ -190,7 +190,22 @@ class Gatherer:
         #
         # Remember: Higher fitness = more likely to reproduce!
         
-        return self.age / 100.0  # Minimal version: just survival time
+        # gene data already implemented so didn't want to touch
+        # chose weighted route since values can be easily changed
+        survival_weight = 0.45
+        food_weight = 0.35
+        energy_weight = 0.20
+
+        survival = (self.age / 1800) * 100 # attempt to have a more familiar value compared to other variables
+        food = self.food_collected
+        energy = self.energy
+
+        fitness = (survival * survival_weight) + (food * food_weight) + (energy * energy_weight)
+
+        if not self.alive:
+            fitness = fitness * 0.5
+
+        return fitness
     
     def take_damage(self):
         """Handle death/life loss"""
