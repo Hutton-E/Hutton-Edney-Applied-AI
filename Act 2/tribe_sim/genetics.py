@@ -88,11 +88,20 @@ class GeneticAlgorithm:
         #
         # Remember: Mutation provides diversity but shouldn't destroy good solutions!
         
-        for gene_name in gatherer.genes:
-            if random.random() < MUTATION_RATE:
-                # Minimal version: just flip a coin and randomize the gene completely
-                min_val, max_val = GENE_RANGES[gene_name]
-                gatherer.genes[gene_name] = random.uniform(min_val, max_val)
+        scale = max(0.3, math.exp(-self.generation / 50))
+        boost = 1.0
+        history = self.fitness_history
+        if len(history) > 5:
+            recent = [h['avg_fitness'] for h in history[-6:]]
+            if max(recent[1:]) <= recent[0] * 1.01:
+                boost = 2.0
+        rate = min(0.5, MUTATION_RATE * boost)
+        for gene in gatherer.genes:
+            if random.random() < rate:
+                min_val, max_val = GENE_RANGES[gene]
+                sig = (max_val- min_val) * 0.1 * scale * boost
+                new_val = gatherer.genes[gene] + random.gauss(0, sig)
+                gatherer.genes[gene] = max(min_val, min(max_val, new_val))
     
     def create_next_generation(self, population):
         # Evaluate fitness
