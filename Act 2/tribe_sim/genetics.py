@@ -51,10 +51,26 @@ class GeneticAlgorithm:
         #
         # Remember: Selection determines which traits get passed to next generation!
         
-        # Minimal version: just take top 50% of population
-        survival_count = max(1, len(fitness_scores) // 2)  # Top 50%
-        survivors = [gatherer for gatherer, fitness in fitness_scores[:survival_count]]
-        return survivors
+        ELITE = 0.10
+        SURVIVAL_FRACT = 0.50
+        total = len(fitness_scores)
+        num_survs = max(2, int(total * SURVIVAL_FRACT))
+        num_elite = max(1, int(total * ELITE))
+
+        ranked = [gatherer for gatherer, fitness in fitness_scores]  # best first
+        elites = ranked[:num_elite]
+        remain = ranked[num_elite:] # everyone below the elites
+        num_rand = max(0, min(len(remain), num_survs - num_elite))
+
+        # first non-elite gets the largest weight, last gets 1
+        weights = [len(remain) - i for i in range(len(remain))]
+
+        # draw one, remove it, repeat
+        randoms = []
+        for _ in range(num_rand):
+            idx = random.choices(range(len(remain)), weights=weights, k=1)[0]
+            randoms.append(remain.pop(idx))
+            weights.pop(idx)
     
     def crossover(self, parent1, parent2):
         child_genes = {}
