@@ -1477,7 +1477,7 @@ def generate_interactive_dashboard(tournament_data, filename="tournament_dashboa
         tournament_data['superlatives']['most_aggressive']['win_rate']
     )
     
-    with open(filename, 'w') as f:
+    with open(filename, 'w', encoding='utf-8') as f:
         f.write(html)
     
     print(f"✅ Interactive dashboard generated: {filename}")
