@@ -344,12 +344,25 @@ class WarehouseEnv(gym.Env):
     
     def _fire_employee(self):
         if self.employees:
-            # Fire the first idle employee, or the last employee if none are idle
-            idle_employees = [emp for emp in self.employees if emp.state == EmployeeState.IDLE]
+            # Preserve the manager needed for layout work whenever possible.
+            idle_employees = [
+                emp for emp in self.employees
+                if emp.state == EmployeeState.IDLE and not emp.is_manager
+            ]
             if idle_employees:
                 self.employees.remove(idle_employees[0])
-            else:
-                self.employees.pop()
+                return
+
+            non_managers = [emp for emp in self.employees if not emp.is_manager]
+            if non_managers:
+                self.employees.remove(non_managers[-1])
+                return
+
+            idle_managers = [
+                emp for emp in self.employees if emp.state == EmployeeState.IDLE
+            ]
+            if idle_managers:
+                self.employees.remove(idle_managers[0])
     
     def _get_idle_employee(self) -> Optional[Employee]:
         for employee in self.employees:

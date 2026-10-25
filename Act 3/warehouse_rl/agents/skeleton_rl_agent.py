@@ -24,12 +24,13 @@ class SkeletonOptimizationAgent(BaselineAgent):
         self.reward_history = []
         self.staffing_parameters = {
             "hire_threshold_ratio": 3.0,
-            "fire_threshold_ratio": 2.0,
+            "fire_threshold_ratio": 1.25,
             "profit_threshold": 0,
         }
         self.last_layout_check = -100
         self.layout_interval = 100
         self.max_workers = 8
+        self.staffing_interval = 25
 
     def reset(self):
         self.action_history = []
@@ -51,13 +52,16 @@ class SkeletonOptimizationAgent(BaselineAgent):
     def _get_staffing_action(self, financial_state, employee_info) -> int:
         workers = [employee for employee in self.env.employees if not employee.is_manager]
         has_manager = any(employee.is_manager for employee in self.env.employees)
-        queue_length = len(self.env.order_queue.orders)
+        pending_orders = [
+            order for order in self.env.order_queue.orders
+            if order.status == "pending"
+        ]
 
         if not has_manager and self.env.current_timestep == 0:
             return 3
 
         worker_count = len(workers)
-        queue_pressure = queue_length / max(1, worker_count)
+        queue_pressure = len(pending_orders) / max(1, worker_count)
         if (worker_count < self.max_workers and
                 queue_pressure > self.staffing_parameters["hire_threshold_ratio"]):
             return 1
@@ -65,9 +69,11 @@ class SkeletonOptimizationAgent(BaselineAgent):
         if (worker_count > 5 and
                 queue_pressure < self.staffing_parameters["fire_threshold_ratio"] and
                 float(financial_state[0]) > self.staffing_parameters["profit_threshold"] and
-                self.env.current_timestep % 100 == 0):
-            slowest = min(workers, key=lambda employee: employee.base_speed_multiplier)
-            if slowest.state == EmployeeState.IDLE:
+                self.env.current_timestep % self.staffing_interval == 0):
+            idle_workers = [
+                employee for employee in workers if employee.state == EmployeeState.IDLE
+            ]
+            if idle_workers:
                 return 2
         return 0
 
@@ -158,19 +164,69 @@ class SkeletonOptimizationAgent(BaselineAgent):
         if not idle_workers or not orders:
             return assignments
 
-        orders.sort(
-            key=lambda pair: (-pair[1].value, -len(pair[1].items), pair[1].arrival_time)
-        )
-        idle_workers.sort(key=lambda pair: -pair[1].base_speed_multiplier)
-        for (order_index, order), (employee_index, employee) in zip(orders, idle_workers):
-            item_locations = [
-                location
-                for item in order.items
-                for location in self.env.warehouse_grid.find_item_locations(item)
-            ]
-            if item_locations:
-                assignments[order_index] = employee_index + 1
+        max_value = max(float(order.value) for _, order in orders)
+        max_distance = 2 * (self.env.warehouse_grid.width + self.env.warehouse_grid.height)
+        locations_by_item = {
+            item: self.env.warehouse_grid.find_item_locations(item)
+            for _, order in orders
+            for item in set(order.items)
+        }
+        scored_pairs = []
+        for order_index, order in orders:
+            route_distance = self._estimate_order_distance(
+                order, None, locations_by_item
+            )
+            if route_distance == float("inf"):
+                continue
+
+            value_score = float(order.value) / max(1.0, max_value)
+            age = max(0, self.env.current_timestep - order.arrival_time)
+            urgency_score = min(1.0, age / 200.0)
+            for employee_index, employee in idle_workers:
+                distance = self._estimate_order_distance(
+                    order, employee.position, locations_by_item
+                )
+                if distance == float("inf"):
+                    continue
+                distance_score = max(0.0, 1.0 - distance / max_distance)
+                speed_score = min(1.0, employee.base_speed_multiplier / 1.7)
+                score = (
+                    0.40 * value_score
+                    + 0.20 * urgency_score
+                    + 0.30 * distance_score
+                    + 0.10 * speed_score
+                )
+                scored_pairs.append((score, order_index, employee_index))
+
+        assigned_orders = set()
+        assigned_workers = set()
+        for _, order_index, employee_index in sorted(
+            scored_pairs, key=lambda pair: pair[0], reverse=True
+        ):
+            if order_index in assigned_orders or employee_index in assigned_workers:
+                continue
+            assignments[order_index] = employee_index + 1
+            assigned_orders.add(order_index)
+            assigned_workers.add(employee_index)
         return assignments
+
+    def _estimate_order_distance(self, order, start_position, locations_by_item=None) -> float:
+        """Return the nearest required-item distance for an order."""
+        grid = self.env.warehouse_grid
+        if locations_by_item is None:
+            locations_by_item = {
+                item: grid.find_item_locations(item) for item in set(order.items)
+            }
+        if start_position is None:
+            if any(not locations_by_item[item] for item in set(order.items)):
+                return float("inf")
+            return 0.0
+
+        return min(
+            grid.manhattan_distance(start_position, position)
+            for item in set(order.items)
+            for position in locations_by_item[item]
+        )
 
     def record_reward(self, reward: float):
         self.reward_history.append(reward)
@@ -194,4 +250,3 @@ def create_skeleton_optimization_agent(env) -> SkeletonOptimizationAgent:
 
 class StudentOptimizationAgent(SkeletonOptimizationAgent):
     """Compatibility alias for assignments that import the student class."""
-
